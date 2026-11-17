@@ -1,0 +1,1321 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tangkap Buah: Sinonim & Antonim (Tahun 5)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Fredoka & Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- MediaPipe Face Mesh & Camera Utils CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <!-- Tone.js untuk Audio Sintesis Rancak & Kesan Bunyi -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            user-select: none;
+            background-color: #0f172a;
+        }
+        h1, h2, h3, .font-game {
+            font-family: 'Fredoka', sans-serif;
+        }
+        /* Animasi terapung lembut */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+        }
+        .animate-float {
+            animation: float 3s ease-in-out infinite;
+        }
+        /* Animasi gegaran apabila salah tangkap */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-10px); }
+            40%, 80% { transform: translateX(10px); }
+        }
+        .animate-shake {
+            animation: shake 0.4s ease-in-out;
+        }
+        /* Custom scrollbar untuk glosari */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(251, 191, 36, 0.6);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative flex items-center justify-center bg-slate-900 text-white">
+
+    <!-- Video Webcam Tersembunyi (Sumber untuk MediaPipe & Kanvas) -->
+    <video id="webcam-video" class="hidden" playsinline autoplay muted></video>
+
+    <!-- Kanvas Utama Permainan (Latar Webcam + Penunjuk Wajah + Buah + Bakul + Zarah) -->
+    <canvas id="game-canvas" class="absolute inset-0 w-full h-full object-cover z-0"></canvas>
+
+    <!-- Lapisan Gelap Halus untuk Kebolehbacaan UI -->
+    <div id="bg-overlay" class="absolute inset-0 bg-slate-900/35 pointer-events-none z-10 transition-opacity duration-300"></div>
+
+    <!-- HUD ATAS (Dipaparkan semasa bermain) -->
+    <div id="game-hud" class="hidden absolute top-0 left-0 right-0 z-20 p-3 sm:p-5 flex flex-col gap-3 pointer-events-none">
+        <!-- Baris 1: Skor, Arahan Soalan Utama, Pemasa -->
+        <div class="flex items-center justify-between gap-2 max-w-6xl mx-auto w-full">
+            
+            <!-- Kotak Skor & Kombo -->
+            <div class="bg-slate-900/85 backdrop-blur-md border-2 border-amber-400/60 rounded-2xl px-4 py-2 sm:px-5 sm:py-3 shadow-xl flex items-center gap-3">
+                <div class="text-2xl sm:text-3xl">🏆</div>
+                <div>
+                    <div class="text-[10px] sm:text-xs uppercase tracking-wider text-amber-300 font-bold">Markah</div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="score-display" class="font-game text-2xl sm:text-3xl font-bold text-white">0</span>
+                        <span id="combo-badge" class="hidden bg-gradient-to-r from-orange-500 to-rose-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-bounce">
+                            x2 KOMBO!
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Papan Arahan Soalan Dinamik (Tengah) -->
+            <div id="question-board" class="flex-1 max-w-xl bg-gradient-to-b from-indigo-950/95 to-slate-900/95 backdrop-blur-md border-2 border-indigo-400/70 rounded-3xl px-4 py-2.5 sm:px-6 sm:py-3.5 shadow-2xl text-center transform transition-all">
+                <div class="flex items-center justify-center gap-2 mb-1">
+                    <span id="mode-badge" class="px-3 py-0.5 rounded-full text-xs sm:text-sm font-extrabold uppercase tracking-wider bg-emerald-500 text-slate-950 shadow">
+                        CARI SINONIM (SAMA ERTI)
+                    </span>
+                    <button id="btn-skip-q" title="Tukar Soalan" class="pointer-events-auto text-xs bg-white/10 hover:bg-white/20 text-indigo-200 px-2 py-0.5 rounded-lg transition">
+                        🔄 Tukar
+                    </button>
+                </div>
+                <div class="text-xs sm:text-sm text-indigo-200">Perkataan Sasaran:</div>
+                <div id="target-word" class="font-game text-2xl sm:text-4xl font-bold text-amber-300 tracking-wide drop-shadow">
+                    BIJAKSANA
+                </div>
+            </div>
+
+            <!-- Kotak Pemasa & Kawalan Audio -->
+            <div class="flex items-center gap-2">
+                <div id="timer-box" class="bg-slate-900/85 backdrop-blur-md border-2 border-sky-400/60 rounded-2xl px-4 py-2 sm:px-5 sm:py-3 shadow-xl flex items-center gap-2.5">
+                    <div class="text-2xl sm:text-3xl">⏱️</div>
+                    <div>
+                        <div class="text-[10px] sm:text-xs uppercase tracking-wider text-sky-300 font-bold">Masa</div>
+                        <div id="timer-display" class="font-game text-2xl sm:text-3xl font-bold text-white">60s</div>
+                    </div>
+                </div>
+                <button id="btn-mute" class="pointer-events-auto bg-slate-900/85 hover:bg-slate-800 border-2 border-slate-600 rounded-2xl p-3 sm:p-3.5 shadow-xl text-xl transition" title="Buka/Tutup Audio">
+                    🔊
+                </button>
+            </div>
+        </div>
+
+        <!-- Baris 2: Penunjuk Status Pengesanan Kepala / Kawalan Alternatif -->
+        <div class="max-w-md mx-auto w-full flex flex-col items-center gap-1">
+            <div id="face-status-pill" class="bg-slate-900/80 backdrop-blur-sm border border-white/20 px-4 py-1 rounded-full text-xs font-medium flex items-center gap-2 shadow">
+                <span id="face-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span id="face-direction-text">Wajah Dikesan: Tengah (Condongkan kepala kiri/kanan)</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- KAWALAN SENTUHAN / PAPAN KEKUNCI SANDARAN (Jika tiada kamera atau untuk kemudahan) -->
+    <div id="fallback-controls" class="hidden fixed bottom-4 left-4 right-4 z-30 flex justify-between pointer-events-none sm:hidden">
+        <button id="touch-left" class="pointer-events-auto bg-white/20 active:bg-amber-400/60 backdrop-blur-md border border-white/30 w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-lg">⬅️</button>
+        <button id="touch-boost" class="pointer-events-auto bg-amber-500/40 active:bg-amber-400/80 backdrop-blur-md border border-amber-300/50 px-4 h-16 rounded-full flex items-center justify-center text-sm font-bold shadow-lg">😮 PECUT</button>
+        <button id="touch-right" class="pointer-events-auto bg-white/20 active:bg-amber-400/60 backdrop-blur-md border border-white/30 w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-lg">➡️</button>
+    </div>
+
+    <!-- SKRIN MULA (START MENU DENGAN PANDUAN PERGERAKAN KEPALA) -->
+    <div id="start-screen" class="relative z-30 max-w-2xl w-full mx-4 bg-slate-900/90 backdrop-blur-xl border-2 border-amber-400/50 rounded-3xl p-6 sm:p-8 shadow-2xl text-center">
+        <div class="inline-flex items-center gap-2 bg-amber-400/20 border border-amber-400/40 text-amber-300 px-4 py-1 rounded-full text-xs sm:text-sm font-bold mb-3">
+            <span>🇲🇾 Bahasa Melayu Tahun 5</span>
+            <span>•</span>
+            <span>AI MediaPipe Face Mesh</span>
+        </div>
+
+        <h1 class="font-game text-3xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 mb-2 drop-shadow-sm">
+            Tangkap Buah Bahasa!
+        </h1>
+        <p class="text-slate-300 text-sm sm:text-base mb-6">
+            Uji kecekapan kosa kata <strong>Sinonim</strong> & <strong>Antonim</strong> menggunakan pergerakan kepala anda!
+        </p>
+
+        <!-- Panduan Visual Pergerakan Kepala -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6 text-left">
+            <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-3.5 flex flex-col items-center text-center">
+                <div class="text-3xl mb-1.5 animate-float">傾斜 👈🙂</div>
+                <h3 class="font-game font-bold text-amber-300 text-sm sm:text-base">Condong Kiri / Kanan</h3>
+                <p class="text-xs text-slate-300 mt-1">Sengetkan kepala ke kiri atau kanan untuk menggerakkan bakul buah.</p>
+            </div>
+            <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-3.5 flex flex-col items-center text-center">
+                <div class="text-3xl mb-1.5">😮⚡</div>
+                <h3 class="font-game font-bold text-sky-300 text-sm sm:text-base">Buka Mulut (Magnet)</h3>
+                <p class="text-xs text-slate-300 mt-1">Nganga mulut untuk mengaktifkan <strong>Bakul Lebar & Magnet</strong> buah!</p>
+            </div>
+            <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-3.5 flex flex-col items-center text-center">
+                <div class="text-3xl mb-1.5">🍉🍎</div>
+                <h3 class="font-game font-bold text-emerald-300 text-sm sm:text-base">Sinonim & Antonim</h3>
+                <p class="text-xs text-slate-300 mt-1">Tangkap buah yang tepat dalam masa <strong>60 saat</strong> untuk bina kombo!</p>
+            </div>
+        </div>
+
+        <!-- Status Kamera & Butang Mula -->
+        <div id="camera-status-box" class="mb-5 p-3 rounded-2xl bg-indigo-950/70 border border-indigo-500/40 text-xs sm:text-sm text-indigo-200 flex items-center justify-center gap-2">
+            <svg class="animate-spin h-4 w-4 text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="camera-status-text">Menyediakan kamera & model pengecaman wajah...</span>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button id="btn-start-game" disabled class="w-full sm:w-auto px-8 py-4 rounded-2xl font-game text-lg sm:text-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 shadow-lg shadow-emerald-500/30 transform hover:scale-105 active:scale-95 transition cursor-pointer">
+                🎮 MULA BERMAIN
+            </button>
+            <button id="btn-start-keyboard" class="hidden w-full sm:w-auto px-6 py-4 rounded-2xl font-game text-base font-bold bg-slate-700 hover:bg-slate-600 text-white border border-slate-500 transition cursor-pointer">
+                ⌨️ Main Guna Kekunci / Sentuh
+            </button>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-3">
+            *Pastikan pencahayaan wajah mencukupi. Anda juga boleh menggunakan kekunci anak panah ⬅️ ➡️ sebagai kawalan tambahan.
+        </p>
+    </div>
+
+    <!-- SKRIN KEPUTUSAN & GLOSARI MAKSUD PERKATAAN -->
+    <div id="end-screen" class="hidden relative z-30 max-w-3xl w-full mx-4 max-h-[92vh] flex flex-col bg-slate-900/95 backdrop-blur-xl border-2 border-amber-400/60 rounded-3xl p-5 sm:p-7 shadow-2xl">
+        
+        <!-- Kepala Keputusan -->
+        <div class="text-center mb-4">
+            <div class="text-4xl sm:text-5xl mb-1">🎉🏆🎉</div>
+            <h2 class="font-game text-2xl sm:text-4xl font-bold text-amber-300">Masa Tamat!</h2>
+            <p id="end-rank-title" class="text-sm sm:text-base text-emerald-300 font-semibold mt-0.5">Jaguh Kosa Kata Tahun 5!</p>
+        </div>
+
+        <!-- Ringkasan Statistik -->
+        <div class="grid grid-cols-3 gap-2.5 sm:gap-4 mb-5">
+            <div class="bg-slate-800/90 border border-amber-400/30 rounded-2xl p-3 text-center">
+                <div class="text-xs text-slate-400">Jumlah Markah</div>
+                <div id="final-score" class="font-game text-2xl sm:text-3xl font-bold text-amber-400">0</div>
+            </div>
+            <div class="bg-slate-800/90 border border-emerald-400/30 rounded-2xl p-3 text-center">
+                <div class="text-xs text-slate-400">Tangkapan Tepat</div>
+                <div id="final-correct" class="font-game text-2xl sm:text-3xl font-bold text-emerald-400">0</div>
+            </div>
+            <div class="bg-slate-800/90 border border-rose-400/30 rounded-2xl p-3 text-center">
+                <div class="text-xs text-slate-400">Kombo Tertinggi</div>
+                <div id="final-max-combo" class="font-game text-2xl sm:text-3xl font-bold text-rose-400">0x</div>
+            </div>
+        </div>
+
+        <!-- Seksyen Glosari Kosa Kata Tahun 5 -->
+        <div class="flex-1 overflow-hidden flex flex-col bg-slate-800/60 border border-slate-700 rounded-2xl p-4 mb-5">
+            <div class="flex items-center justify-between mb-2.5">
+                <h3 class="font-game text-base sm:text-lg font-bold text-sky-300 flex items-center gap-2">
+                    <span>📖</span> Glosari Maksud Perkataan (Sesi Ini)
+                </h3>
+                <span class="text-xs text-slate-400">Rujukan Ulang Kaji</span>
+            </div>
+            <div id="glossary-list" class="overflow-y-auto pr-1 space-y-2.5 text-left">
+                <!-- Item glosari akan dijana secara dinamik di sini -->
+            </div>
+        </div>
+
+        <!-- Butang Main Semula -->
+        <div class="flex justify-center">
+            <button id="btn-restart-game" class="px-8 py-3.5 rounded-2xl font-game text-lg font-bold bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 shadow-lg shadow-orange-500/30 transform hover:scale-105 active:scale-95 transition cursor-pointer">
+                🔄 MAIN SEMULA
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * PANGKALAN DATA KOSA KATA BAHASA MELAYU TAHUN 5 (SINONIM & ANTONIM)
+         * ============================================================================
+         */
+        const VOCABULARY_BANK = [
+            {
+                word: "BIJAKSANA",
+                meaning: "Berakal budi, pandai, dan cerdik dalam membuat pertimbangan.",
+                synonyms: ["Cerdik", "Bestari", "Pintar"],
+                antonyms: ["Jahil", "Dungu", "Bebal"],
+                distractors: ["Gopoh", "Malas", "Lalai"]
+            },
+            {
+                word: "GIGIH",
+                meaning: "Tekun dan bersemangat tinggi dalam melakukan sesuatu usaha.",
+                synonyms: ["Tekun", "Tabah", "Cekal"],
+                antonyms: ["Culas", "Malas", "Lalai"],
+                distractors: ["Gentar", "Ramah", "Sopan"]
+            },
+            {
+                word: "HARMONI",
+                meaning: "Keadaan aman, damai, dan sepakat dalam masyarakat.",
+                synonyms: ["Damai", "Sejahtera", "Aman"],
+                antonyms: ["Kacau", "Sengketa", "Porak-peranda"],
+                distractors: ["Sunyi", "Meriah", "Sibuk"]
+            },
+            {
+                word: "DERMAWAN",
+                meaning: "Orang yang suka memberi bantuan atau bersedekah dengan ikhlas.",
+                synonyms: ["Pemurah", "Budiman", "Baik hati"],
+                antonyms: ["Kedekut", "Bakhil", "Kikir"],
+                distractors: ["Sombong", "Garang", "Tegas"]
+            },
+            {
+                word: "PERMAI",
+                meaning: "Sangat indah, cantik, dan sedap dipandang mata.",
+                synonyms: ["Indah", "Molek", "Cantik"],
+                antonyms: ["Hodoh", "Buruk", "Usang"],
+                distractors: ["Luas", "Tinggi", "Kecil"]
+            },
+            {
+                word: "PANTAS",
+                meaning: "Bergerak atau bertindak dengan sangat cepat dan tangkas.",
+                synonyms: ["Cepat", "Tangkas", "Laju"],
+                antonyms: ["Lambat", "Perlahan", "Lembap"],
+                distractors: ["Berat", "Kuat", "Lemah"]
+            },
+            {
+                word: "BERANI",
+                meaning: "Mempunyai hati yang tabah dan tidak gentar menghadapi bahaya.",
+                synonyms: ["Gagah", "Perwira", "Cekal"],
+                antonyms: ["Penakut", "Gentar", "Kecut"],
+                distractors: ["Sabar", "Tenang", "Gembira"]
+            },
+            {
+                word: "MODEN",
+                meaning: "Terbaharu, terkini, dan mengikut perkembangan zaman.",
+                synonyms: ["Terkini", "Baharu", "Canggih"],
+                antonyms: ["Kuno", "Usang", "Lama"],
+                distractors: ["Mahal", "Murah", "Besar"]
+            },
+            {
+                word: "CEMERLANG",
+                meaning: "Sangat baik, gemilang, dan mencapai kejayaan tinggi.",
+                synonyms: ["Gemilang", "Terbilang", "Unggul"],
+                antonyms: ["Corot", "Gagal", "Mundur"],
+                distractors: ["Sederhana", "Biasa", "Tenang"]
+            },
+            {
+                word: "IKHLAS",
+                meaning: "Hati yang suci, jujur, dan tidak mengharapkan balasan.",
+                synonyms: ["Jujur", "Tulus", "Suci"],
+                antonyms: ["Pura-pura", "Curang", "Munafik"],
+                distractors: ["Marah", "Sedih", "Kecewa"]
+            },
+            {
+                word: "SUBUR",
+                meaning: "Tumbuh dengan sihat dan banyak mengeluarkan hasil (tanaman/tanah).",
+                synonyms: ["Gembur", "Segar", "Rimbun"],
+                antonyms: ["Gersang", "Kontang", "Tandus"],
+                distractors: ["Basah", "Lembap", "Sejuk"]
+            },
+            {
+                word: "TEGAS",
+                meaning: "Tetap pendirian, jelas, dan tidak ragu-ragu dalam keputusan.",
+                synonyms: ["Jelas", "Nyata", "Tetap"],
+                antonyms: ["Ragu-ragu", "Lembut", "Bimbang"],
+                distractors: ["Cepat", "Halus", "Kasar"]
+            }
+        ];
+
+        // Jenis Buah-buahan & Warna Percikan Jus
+        const FRUIT_TYPES = [
+            { emoji: "🍎", name: "Epal", juiceColor: "#ef4444", bgTint: "rgba(239, 68, 68, 0.92)" },
+            { emoji: "🍊", name: "Oren", juiceColor: "#f97316", bgTint: "rgba(249, 115, 22, 0.92)" },
+            { emoji: "🍉", name: "Tembikai", juiceColor: "#f43f5e", bgTint: "rgba(244, 63, 94, 0.92)" },
+            { emoji: "🍇", name: "Anggur", juiceColor: "#a855f7", bgTint: "rgba(168, 85, 247, 0.92)" },
+            { emoji: "🥭", name: "Mangga", juiceColor: "#eab308", bgTint: "rgba(234, 179, 8, 0.92)" },
+            { emoji: "🥝", name: "Kiwi", juiceColor: "#22c55e", bgTint: "rgba(34, 197, 94, 0.92)" }
+        ];
+
+        /**
+         * ============================================================================
+         * PENGURUS AUDIO & MUZIK LATAR RANCAK (TONE.JS)
+         * ============================================================================
+         */
+        class SoundManager {
+            constructor() {
+                this.isMuted = false;
+                this.initialized = false;
+                this.bgmLoop = null;
+            }
+
+            async init() {
+                if (this.initialized) return;
+                try {
+                    await Tone.start();
+                    // Synth untuk kesan bunyi
+                    this.sfxSynth = new Tone.PolySynth(Tone.Synth, {
+                        oscillator: { type: "triangle" },
+                        envelope: { attack: 0.01, decay: 0.15, sustain: 0.1, release: 0.3 }
+                    }).toDestination();
+                    this.sfxSynth.volume.value = -6;
+
+                    // Synth untuk muzik latar rancak ceria
+                    this.bgmSynth = new Tone.Synth({
+                        oscillator: { type: "sine" },
+                        envelope: { attack: 0.02, decay: 0.15, sustain: 0.1, release: 0.2 }
+                    }).toDestination();
+                    this.bgmSynth.volume.value = -16;
+
+                    const melody = [
+                        "C5", "E5", "G5", "E5", "A5", "G5", "E5", "D5",
+                        "C5", "D5", "E5", "G5", "A5", "G5", "E5", "C5"
+                    ];
+                    let step = 0;
+
+                    this.bgmLoop = new Tone.Loop((time) => {
+                        if (!this.isMuted && gameState.isPlaying) {
+                            const note = melody[step % melody.length];
+                            this.bgmSynth.triggerAttackRelease(note, "8n", time);
+                            step++;
+                        }
+                    }, "8n");
+
+                    Tone.Transport.bpm.value = 132;
+                    this.initialized = true;
+                } catch (e) {
+                    console.warn("Audio gagal dimulakan:", e);
+                }
+            }
+
+            startMusic() {
+                if (!this.initialized) return;
+                if (Tone.Transport.state !== "started") {
+                    Tone.Transport.start();
+                }
+                if (this.bgmLoop) this.bgmLoop.start(0);
+            }
+
+            stopMusic() {
+                if (!this.initialized) return;
+                if (this.bgmLoop) this.bgmLoop.stop();
+            }
+
+            playCatchCorrect(combo) {
+                if (!this.initialized || this.isMuted) return;
+                const baseNotes = ["C5", "E5", "G5", "C6"];
+                const pitchShift = Math.min(combo, 6);
+                this.sfxSynth.triggerAttackRelease(["C5", "E5", "G5"], "16n");
+                setTimeout(() => {
+                    this.sfxSynth.triggerAttackRelease(pitchShift > 2 ? "E6" : "C6", "16n");
+                }, 70);
+            }
+
+            playCatchWrong() {
+                if (!this.initialized || this.isMuted) return;
+                this.sfxSynth.triggerAttackRelease(["F3", "Eb3"], "8n");
+            }
+
+            playGameOver() {
+                if (!this.initialized || this.isMuted) return;
+                const notes = ["G5", "E5", "C5", "G4"];
+                notes.forEach((n, i) => {
+                    setTimeout(() => this.sfxSynth.triggerAttackRelease(n, "8n"), i * 120);
+                });
+            }
+
+            toggleMute() {
+                this.isMuted = !this.isMuted;
+                return this.isMuted;
+            }
+        }
+
+        const sound = new SoundManager();
+
+        /**
+         * ============================================================================
+         * KEADAAN PERMAINAN & PEMBOLEHUBAH GLOBAL
+         * ============================================================================
+         */
+        const canvas = document.getElementById("game-canvas");
+        const ctx = canvas.getContext("2d");
+        const videoElement = document.getElementById("webcam-video");
+
+        const gameState = {
+            isPlaying: false,
+            score: 0,
+            combo: 0,
+            maxCombo: 0,
+            correctCount: 0,
+            timeLeft: 60,
+            currentQuestion: null,
+            currentMode: "SINONIM", // "SINONIM" atau "ANTONIM"
+            usedQuestions: [],
+            fruits: [],
+            particles: [],
+            floatingTexts: [],
+            lastSpawnTime: 0,
+            spawnInterval: 1550, // milisaat
+            cameraReady: false,
+            useKeyboardFallback: false
+        };
+
+        // Keadaan Penjejakan Wajah MediaPipe
+        const faceTracking = {
+            detected: false,
+            headTiltAngle: 0,     // Sudut kecondongan kepala (darjah)
+            normalizedTilt: 0,    // -1 (kiri) hingga +1 (kanan)
+            mouthOpenRatio: 0,    // Nisbah bukaan mulut
+            isMouthOpen: false,   // True jika mulut terbuka luas
+            nosePos: { x: 0.5, y: 0.5 },
+            leftEye: null,
+            rightEye: null
+        };
+
+        // Objek Bakul Pengumpul
+        const basket = {
+            x: window.innerWidth / 2,
+            y: window.innerHeight - 95,
+            baseWidth: 145,
+            currentWidth: 145,
+            height: 65,
+            targetX: window.innerWidth / 2,
+            tiltVisual: 0
+        };
+
+        // Kawalan Papan Kekunci / Sentuhan Sandaran
+        const keys = { left: false, right: false, boost: false };
+
+        /**
+         * ============================================================================
+         * PENYEDIAAN KANVAS RESPONSIF
+         * ============================================================================
+         */
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            basket.y = canvas.height - (window.innerWidth < 640 ? 115 : 85);
+            basket.baseWidth = Math.max(115, Math.min(165, canvas.width * 0.14));
+        }
+        window.addEventListener("resize", resizeCanvas);
+        resizeCanvas();
+
+        /**
+         * ============================================================================
+         * INTEGRASI GOOGLE MEDIAPIPE FACE MESH
+         * ============================================================================
+         */
+        function onFaceMeshResults(results) {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                faceTracking.detected = true;
+
+                // Titik rujukan penting pada wajah (koordinat ternormal 0.0 - 1.0)
+                // Nota: Video dicerminkan secara mendatar, jadi kita songsangkan X (1 - x)
+                const leftEyeOuter = landmarks[33];   // Mata kiri subjek (kanan pada skrin cermin)
+                const rightEyeOuter = landmarks[263]; // Mata kanan subjek (kiri pada skrin cermin)
+                const noseTip = landmarks[1];
+                const upperLip = landmarks[13];
+                const lowerLip = landmarks[14];
+                const forehead = landmarks[10];
+                const chin = landmarks[152];
+
+                // Simpan koordinat cermin untuk lukisan penunjuk arah wajah
+                const leX = 1 - leftEyeOuter.x;
+                const leY = leftEyeOuter.y;
+                const reX = 1 - rightEyeOuter.x;
+                const reY = rightEyeOuter.y;
+
+                faceTracking.leftEye = { x: reX, y: reY };   // Kiri pada skrin
+                faceTracking.rightEye = { x: leX, y: leY };  // Kanan pada skrin
+                faceTracking.nosePos = { x: 1 - noseTip.x, y: noseTip.y };
+
+                // 1. Kira Sudut Kecondongan Kepala (Head Tilt Roll)
+                // Bandingkan perbezaan ketinggian Y antara mata kiri dan mata kanan pada skrin
+                const dx = leX - reX;
+                const dy = leY - reY;
+                const angleRad = Math.atan2(dy, dx);
+                const angleDeg = angleRad * (180 / Math.PI);
+
+                // Tapis sedikit hingar (deadzone 3 darjah)
+                faceTracking.headTiltAngle = angleDeg;
+                let effectiveAngle = 0;
+                if (Math.abs(angleDeg) > 3.5) {
+                    effectiveAngle = angleDeg > 0 ? angleDeg - 3.5 : angleDeg + 3.5;
+                }
+                // Maksimum kecondongan 22 darjah untuk kelajuan penuh
+                faceTracking.normalizedTilt = Math.max(-1, Math.min(1, effectiveAngle / 22));
+
+                // 2. Kira Nisbah Bukaan Mulut (Mouth Open Detection)
+                const faceHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y);
+                const mouthGap = Math.hypot(lowerLip.x - upperLip.x, lowerLip.y - upperLip.y);
+                faceTracking.mouthOpenRatio = faceHeight > 0 ? (mouthGap / faceHeight) : 0;
+                faceTracking.isMouthOpen = faceTracking.mouthOpenRatio > 0.065;
+
+                updateFaceStatusUI();
+            } else {
+                faceTracking.detected = false;
+                faceTracking.normalizedTilt = 0;
+                faceTracking.isMouthOpen = false;
+                updateFaceStatusUI();
+            }
+        }
+
+        function updateFaceStatusUI() {
+            const dot = document.getElementById("face-dot");
+            const text = document.getElementById("face-direction-text");
+            if (!dot || !text) return;
+
+            if (!gameState.cameraReady) {
+                dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400";
+                text.textContent = "Mod Sandaran: Guna Kekunci Anak Panah ⬅️ ➡️";
+                return;
+            }
+
+            if (!faceTracking.detected) {
+                dot.className = "w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping";
+                text.textContent = "Wajah tidak dikesan - Sila menghadap kamera";
+                return;
+            }
+
+            dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+            let dirLabel = "Tengah";
+            if (faceTracking.normalizedTilt < -0.15) dirLabel = "⬅️ Condong Kiri";
+            else if (faceTracking.normalizedTilt > 0.15) dirLabel = "Condong Kanan ➡️";
+
+            const boostLabel = faceTracking.isMouthOpen ? " | 😮 MAGNET AKTIF!" : "";
+            text.textContent = `Wajah Dikesan: ${dirLabel}${boostLabel}`;
+        }
+
+        async function initMediaPipe() {
+            const statusText = document.getElementById("camera-status-text");
+            const statusBox = document.getElementById("camera-status-box");
+            const startBtn = document.getElementById("btn-start-game");
+            const fallbackBtn = document.getElementById("btn-start-keyboard");
+
+            try {
+                const faceMesh = new FaceMesh({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                });
+
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: false,
+                    minDetectionConfidence: 0.55,
+                    minTrackingConfidence: 0.55
+                });
+
+                faceMesh.onResults(onFaceMeshResults);
+
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await faceMesh.send({ image: videoElement });
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                await camera.start();
+
+                gameState.cameraReady = true;
+                statusBox.className = "mb-5 p-3 rounded-2xl bg-emerald-950/80 border border-emerald-500/50 text-xs sm:text-sm text-emerald-300 flex items-center justify-center gap-2";
+                statusBox.innerHTML = `<span>✅</span> <span>Kamera & Penjejak Wajah Sedia! Condongkan kepala anda untuk menguji.</span>`;
+                startBtn.disabled = false;
+            } catch (err) {
+                console.warn("Kamera tidak dapat diakses:", err);
+                gameState.cameraReady = false;
+                gameState.useKeyboardFallback = true;
+                statusBox.className = "mb-5 p-3 rounded-2xl bg-amber-950/80 border border-amber-500/50 text-xs sm:text-sm text-amber-200 flex items-center justify-center gap-2";
+                statusBox.innerHTML = `<span>⚠️</span> <span>Kamera tidak dikesan atau disekat. Anda boleh bermain menggunakan kekunci anak panah / sentuhan!</span>`;
+                startBtn.disabled = false;
+                startBtn.textContent = "🎮 MULA (MOD KEKUNCI)";
+                fallbackBtn.classList.add("hidden");
+            }
+        }
+
+        /**
+         * ============================================================================
+         * LOGIK SOALAN DINAMIK & PENJANAAN BUAH
+         * ============================================================================
+         */
+        function pickNextQuestion(forceChange = false) {
+            // Pilih perkataan yang belum digunakan baru-baru ini
+            let available = VOCABULARY_BANK.filter(q => !gameState.usedQuestions.includes(q.word));
+            if (available.length === 0) {
+                gameState.usedQuestions = [];
+                available = [...VOCABULARY_BANK];
+            }
+
+            const chosen = available[Math.floor(Math.random() * available.length)];
+            gameState.currentQuestion = chosen;
+            gameState.currentMode = Math.random() < 0.5 ? "SINONIM" : "ANTONIM";
+
+            if (!gameState.usedQuestions.includes(chosen.word)) {
+                gameState.usedQuestions.push(chosen.word);
+            }
+
+            // Kemas kini UI Papan Soalan
+            const modeBadge = document.getElementById("mode-badge");
+            const targetWordEl = document.getElementById("target-word");
+            const boardEl = document.getElementById("question-board");
+
+            targetWordEl.textContent = chosen.word;
+
+            if (gameState.currentMode === "SINONIM") {
+                modeBadge.textContent = "CARI SINONIM (SAMA ERTI)";
+                modeBadge.className = "px-3 py-0.5 rounded-full text-xs sm:text-sm font-extrabold uppercase tracking-wider bg-emerald-400 text-slate-950 shadow";
+                boardEl.style.borderColor = "rgba(52, 211, 153, 0.8)";
+            } else {
+                modeBadge.textContent = "CARI ANTONIM (BERLAWANAN)";
+                modeBadge.className = "px-3 py-0.5 rounded-full text-xs sm:text-sm font-extrabold uppercase tracking-wider bg-rose-500 text-white shadow";
+                boardEl.style.borderColor = "rgba(244, 63, 94, 0.8)";
+            }
+
+            // Bersihkan buah lama atau tukar label buah yang masih tinggi di atas skrin
+            if (forceChange) {
+                gameState.fruits = gameState.fruits.filter(f => f.y > canvas.height * 0.45);
+            }
+        }
+
+        function spawnFruit() {
+            if (!gameState.currentQuestion) return;
+
+            const q = gameState.currentQuestion;
+            const isSynMode = gameState.currentMode === "SINONIM";
+
+            // 55% peluang menjana jawapan yang BETUL, 45% jawapan SALAH (pengecoh)
+            const spawnCorrect = Math.random() < 0.55;
+            let wordLabel = "";
+
+            if (spawnCorrect) {
+                const pool = isSynMode ? q.synonyms : q.antonyms;
+                wordLabel = pool[Math.floor(Math.random() * pool.length)];
+            } else {
+                // Campurkan antonim/sinonim bertentangan dengan perkataan pengecoh
+                const wrongPool = isSynMode
+                    ? [...q.antonyms, ...q.distractors]
+                    : [...q.synonyms, ...q.distractors];
+                wordLabel = wrongPool[Math.floor(Math.random() * wrongPool.length)];
+            }
+
+            const fruitMeta = FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+            const padding = 85;
+            const xPos = padding + Math.random() * (canvas.width - padding * 2);
+
+            // Kelajuan jatuh meningkat sedikit mengikut skor
+            const speedBase = Math.max(2.1, canvas.height * 0.0032);
+            const speedBonus = Math.min(2.2, gameState.score * 0.004);
+
+            gameState.fruits.push({
+                x: xPos,
+                y: -60,
+                vy: speedBase + speedBonus + (Math.random() * 0.8),
+                vx: (Math.random() - 0.5) * 0.6,
+                radius: 36,
+                word: wordLabel.toUpperCase(),
+                isCorrect: spawnCorrect,
+                fruit: fruitMeta,
+                rotation: (Math.random() - 0.5) * 0.3,
+                rotSpeed: (Math.random() - 0.5) * 0.02
+            });
+        }
+
+        /**
+         * ============================================================================
+         * KESAN VISUAL: PERCIKAN JUS BUAH & TEKS TERAPUNG
+         * ============================================================================
+         */
+        function createJuiceSplash(x, y, color, isPositive) {
+            const count = isPositive ? 26 : 16;
+            for (let i = 0; i < count; i++) {
+                const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+                const speed = (isPositive ? 3 : 2) + Math.random() * 6;
+                gameState.particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 2.5,
+                    radius: 4 + Math.random() * 7,
+                    color: isPositive ? color : "#64748b",
+                    alpha: 1,
+                    gravity: 0.25
+                });
+            }
+        }
+
+        function addFloatingText(x, y, text, color) {
+            gameState.floatingTexts.push({
+                x, y, text, color,
+                alpha: 1,
+                vy: -2.2
+            });
+        }
+
+        /**
+         * ============================================================================
+         * GELUNG KEMAS KINI & LUKISAN (ANIMATION LOOP)
+         * ============================================================================
+         */
+        function updateGame(timestamp) {
+            if (!gameState.isPlaying) return;
+
+            // 1. Jana buah baru mengikut selang masa
+            if (timestamp - gameState.lastSpawnTime > gameState.spawnInterval) {
+                spawnFruit();
+                gameState.lastSpawnTime = timestamp;
+                // Percepatkan sedikit selang masa apabila skor meningkat
+                gameState.spawnInterval = Math.max(950, 1550 - gameState.score * 2.5);
+            }
+
+            // 2. Pergerakan Bakul (Kecondongan Kepala atau Kekunci/Sentuh)
+            const moveSpeed = canvas.width * 0.015;
+            if (faceTracking.detected) {
+                // Pergerakan berkadar dengan sudut kecondongan kepala
+                basket.x += faceTracking.normalizedTilt * moveSpeed * 1.45;
+                basket.tiltVisual = faceTracking.normalizedTilt * 0.22;
+            } else {
+                let dir = 0;
+                if (keys.left) dir -= 1;
+                if (keys.right) dir += 1;
+                basket.x += dir * moveSpeed;
+                basket.tiltVisual = dir * 0.18;
+            }
+
+            // Kuasa Bukaan Mulut (Memperbesarkan bakul & menarik buah)
+            const isBoosted = faceTracking.isMouthOpen || keys.boost;
+            const targetWidth = isBoosted ? basket.baseWidth * 1.45 : basket.baseWidth;
+            basket.currentWidth += (targetWidth - basket.currentWidth) * 0.18;
+
+            // Hadkan bakul dalam sempadan skrin
+            const halfW = basket.currentWidth / 2;
+            basket.x = Math.max(halfW + 15, Math.min(canvas.width - halfW - 15, basket.x));
+
+            // 3. Kemas kini kedudukan buah & semak perlanggaran
+            for (let i = gameState.fruits.length - 1; i >= 0; i--) {
+                const f = gameState.fruits[i];
+                f.y += f.vy;
+                f.x += f.vx;
+                f.rotation += f.rotSpeed;
+
+                // Pantulan lembut di dinding sisi
+                if (f.x < 55 || f.x > canvas.width - 55) f.vx *= -1;
+
+                // Kesan Magnet jika mulut dibuka luas dan buah berhampiran
+                if (isBoosted && f.isCorrect && f.y > canvas.height * 0.45) {
+                    const dx = basket.x - f.x;
+                    const dy = basket.y - f.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < 260 && dist > 1) {
+                        f.x += (dx / dist) * 4.5;
+                        f.y += (dy / dist) * 2.5;
+                    }
+                }
+
+                // Semak tangkapan dengan bakul
+                const catchTop = basket.y - basket.height * 0.45;
+                const catchBottom = basket.y + basket.height * 0.45;
+                const catchLeft = basket.x - basket.currentWidth * 0.52;
+                const catchRight = basket.x + basket.currentWidth * 0.52;
+
+                if (f.y + f.radius * 0.6 >= catchTop &&
+                    f.y - f.radius * 0.6 <= catchBottom &&
+                    f.x >= catchLeft &&
+                    f.x <= catchRight) {
+                    
+                    handleFruitCatch(f);
+                    gameState.fruits.splice(i, 1);
+                    continue;
+                }
+
+                // Buang buah jika jatuh melepasi bahagian bawah skrin
+                if (f.y - f.radius > canvas.height + 40) {
+                    gameState.fruits.splice(i, 1);
+                }
+            }
+
+            // 4. Kemas kini zarah percikan jus
+            for (let i = gameState.particles.length - 1; i >= 0; i--) {
+                const p = gameState.particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += p.gravity;
+                p.alpha -= 0.025;
+                if (p.alpha <= 0) gameState.particles.splice(i, 1);
+            }
+
+            // 5. Kemas kini teks terapung
+            for (let i = gameState.floatingTexts.length - 1; i >= 0; i--) {
+                const ft = gameState.floatingTexts[i];
+                ft.y += ft.vy;
+                ft.alpha -= 0.02;
+                if (ft.alpha <= 0) gameState.floatingTexts.splice(i, 1);
+            }
+        }
+
+        function handleFruitCatch(fruit) {
+            if (fruit.isCorrect) {
+                gameState.combo += 1;
+                if (gameState.combo > gameState.maxCombo) {
+                    gameState.maxCombo = gameState.combo;
+                }
+                gameState.correctCount += 1;
+
+                const pointsEarned = 10 + Math.min(gameState.combo * 2, 20);
+                gameState.score += pointsEarned;
+
+                sound.playCatchCorrect(gameState.combo);
+                createJuiceSplash(fruit.x, basket.y - 15, fruit.fruit.juiceColor, true);
+                addFloatingText(fruit.x, basket.y - 45, `+${pointsEarned} TEPAT!`, "#4ade80");
+
+                // Tukar soalan baru selepas setiap 2 tangkapan tepat supaya dinamik & mencabar
+                if (gameState.correctCount % 2 === 0) {
+                    setTimeout(() => {
+                        if (gameState.isPlaying) pickNextQuestion(true);
+                    }, 350);
+                }
+            } else {
+                // Tangkapan Salah
+                gameState.combo = 0;
+                gameState.score = Math.max(0, gameState.score - 5);
+
+                sound.playCatchWrong();
+                createJuiceSplash(fruit.x, basket.y - 15, "#94a3b8", false);
+                addFloatingText(fruit.x, basket.y - 45, `-5 SALAH!`, "#fb7185");
+
+                // Gegarkan papan soalan
+                const board = document.getElementById("question-board");
+                board.classList.remove("animate-shake");
+                void board.offsetWidth;
+                board.classList.add("animate-shake");
+            }
+
+            updateScoreHUD();
+        }
+
+        function updateScoreHUD() {
+            document.getElementById("score-display").textContent = gameState.score;
+            const comboBadge = document.getElementById("combo-badge");
+            if (gameState.combo >= 2) {
+                comboBadge.textContent = `x${gameState.combo} KOMBO!`;
+                comboBadge.classList.remove("hidden");
+            } else {
+                comboBadge.classList.add("hidden");
+            }
+        }
+
+        /**
+         * ============================================================================
+         * LUKISAN KANVAS (WEBCAM + PENUNJUK WAJAH + BUAH + BAKUL + ZARAH)
+         * ============================================================================
+         */
+        function drawScene() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Lukis Latar Belakang Webcam Masa Nyata (Dicerminkan)
+            if (gameState.cameraReady && videoElement.readyState >= 2) {
+                ctx.save();
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+
+                // Kira nisbah aspek 'cover' supaya video tidak penyek
+                const vidRatio = videoElement.videoWidth / videoElement.videoHeight;
+                const canRatio = canvas.width / canvas.height;
+                let drawW, drawH, offsetX, offsetY;
+
+                if (canRatio > vidRatio) {
+                    drawW = canvas.width;
+                    drawH = canvas.width / vidRatio;
+                    offsetX = 0;
+                    offsetY = (canvas.height - drawH) / 2;
+                } else {
+                    drawH = canvas.height;
+                    drawW = canvas.height * vidRatio;
+                    offsetX = (canvas.width - drawW) / 2;
+                    offsetY = 0;
+                }
+
+                ctx.drawImage(videoElement, offsetX, offsetY, drawW, drawH);
+                ctx.restore();
+            } else {
+                // Latar gradien ceria jika tiada webcam
+                const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                grad.addColorStop(0, "#1e1b4b");
+                grad.addColorStop(0.5, "#312e81");
+                grad.addColorStop(1, "#0f172a");
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // 2. Lukis Penunjuk Arah Wajah (AR Face Tilt Indicator) pada skrin
+            if (faceTracking.detected && faceTracking.leftEye && faceTracking.rightEye) {
+                drawFaceIndicator();
+            }
+
+            // 3. Lukis Buah-buahan bersama Label Perkataan
+            for (const f of gameState.fruits) {
+                drawFruitItem(f);
+            }
+
+            // 4. Lukis Bakul Pengumpul di Bahagian Bawah
+            drawBasket();
+
+            // 5. Lukis Percikan Jus Buah
+            for (const p of gameState.particles) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, p.alpha);
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // 6. Lukis Teks Terapung (+10 TEPAT! / -5 SALAH!)
+            for (const ft of gameState.floatingTexts) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, ft.alpha);
+                ctx.font = "bold 24px 'Fredoka', sans-serif";
+                ctx.textAlign = "center";
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = "#0f172a";
+                ctx.strokeText(ft.text, ft.x, ft.y);
+                ctx.fillStyle = ft.color;
+                ctx.fillText(ft.text, ft.x, ft.y);
+                ctx.restore();
+            }
+        }
+
+        function drawFaceIndicator() {
+            const lx = faceTracking.leftEye.x * canvas.width;
+            const ly = faceTracking.leftEye.y * canvas.height;
+            const rx = faceTracking.rightEye.x * canvas.width;
+            const ry = faceTracking.rightEye.y * canvas.height;
+            const nx = faceTracking.nosePos.x * canvas.width;
+            const ny = faceTracking.nosePos.y * canvas.height;
+
+            ctx.save();
+            // Garis imbangan antara dua mata untuk menunjukkan sudut kecondongan kepala
+            ctx.strokeStyle = faceTracking.isMouthOpen ? "#38bdf8" : "#fbbf24";
+            ctx.lineWidth = 3;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.moveTo(lx, ly);
+            ctx.lineTo(rx, ry);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Titik penanda pada mata dan hujung hidung
+            ctx.fillStyle = "#34d399";
+            [ [lx, ly], [rx, ry] ].forEach(([px, py]) => {
+                ctx.beginPath();
+                ctx.arc(px, py, 5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Penunjuk arah anak panah di atas hidung
+            ctx.fillStyle = faceTracking.isMouthOpen ? "#38bdf8" : "#fbbf24";
+            ctx.beginPath();
+            ctx.arc(nx, ny, 7, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Papar anak panah arah condong jika melebihi ambang
+            if (Math.abs(faceTracking.normalizedTilt) > 0.15) {
+                const arrow = faceTracking.normalizedTilt < 0 ? "⬅️" : "➡️";
+                ctx.font = "28px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText(arrow, nx, ny - 35);
+            }
+            ctx.restore();
+        }
+
+        function drawFruitItem(f) {
+            ctx.save();
+            ctx.translate(f.x, f.y);
+
+            // Aura cahaya lembut di belakang buah
+            const glow = ctx.createRadialGradient(0, 0, 8, 0, 0, 46);
+            glow.addColorStop(0, "rgba(255, 255, 255, 0.45)");
+            glow.addColorStop(1, "rgba(255, 255, 255, 0)");
+            ctx.fillStyle = glow;
+            ctx.beginPath();
+            ctx.arc(0, 0, 46, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Lukis Emoji Buah (berputar perlahan)
+            ctx.save();
+            ctx.rotate(f.rotation);
+            ctx.font = "54px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(f.fruit.emoji, 0, -6);
+            ctx.restore();
+
+            // Lukis Kapsul Label Perkataan di bawah buah
+            ctx.font = "bold 17px 'Fredoka', sans-serif";
+            const textMetrics = ctx.measureText(f.word);
+            const pillW = Math.max(84, textMetrics.width + 26);
+            const pillH = 30;
+            const pillY = 24;
+
+            // Latar kapsul
+            ctx.fillStyle = "#0f172a";
+            ctx.beginPath();
+            ctx.roundRect(-pillW / 2, pillY, pillW, pillH, 15);
+            ctx.fill();
+
+            // Sempadan kapsul berwarna mengikut buah
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = f.fruit.juiceColor;
+            ctx.stroke();
+
+            // Teks perkataan
+            ctx.fillStyle = "#ffffff";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(f.word, 0, pillY + pillH / 2 + 1);
+
+            ctx.restore();
+        }
+
+        function drawBasket() {
+            const w = basket.currentWidth;
+            const h = basket.height;
+            const isBoosted = faceTracking.isMouthOpen || keys.boost;
+
+            ctx.save();
+            ctx.translate(basket.x, basket.y);
+            ctx.rotate(basket.tiltVisual);
+
+            // Kesan aura magnet jika mulut dibuka
+            if (isBoosted) {
+                ctx.strokeStyle = "rgba(56, 189, 248, 0.75)";
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(0, -10, w * 0.65, Math.PI, 0);
+                ctx.stroke();
+            }
+
+            // Badan Bakul Anyaman (Trapezoid Melengkung)
+            const topW = w;
+            const botW = w * 0.74;
+
+            const basketGrad = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+            basketGrad.addColorStop(0, "#f59e0b");
+            basketGrad.addColorStop(0.5, "#d97706");
+            basketGrad.addColorStop(1, "#92400e");
+
+            ctx.fillStyle = basketGrad;
+            ctx.beginPath();
+            ctx.moveTo(-topW / 2, -h / 2);
+            ctx.lineTo(topW / 2, -h / 2);
+            ctx.lineTo(botW / 2, h / 2);
+            ctx.quadraticCurveTo(0, h / 2 + 10, -botW / 2, h / 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Garis anyaman bakul
+            ctx.strokeStyle = "#78350f";
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            // Corak silang anyaman
+            ctx.strokeStyle = "rgba(120, 53, 15, 0.45)";
+            ctx.lineWidth = 2;
+            for (let xOff = -botW * 0.35; xOff <= botW * 0.35; xOff += 22) {
+                ctx.beginPath();
+                ctx.moveTo(xOff * 1.15, -h / 2 + 8);
+                ctx.lineTo(xOff * 0.85, h / 2 - 4);
+                ctx.stroke();
+            }
+
+            // Bingkai atas bakul
+            ctx.fillStyle = "#fbbf24";
+            ctx.beginPath();
+            ctx.roundRect(-topW / 2 - 5, -h / 2 - 6, topW + 10, 14, 7);
+            ctx.fill();
+            ctx.strokeStyle = "#92400e";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Label kecil pada bakul
+            ctx.fillStyle = "#fffbeb";
+            ctx.font = "bold 13px 'Fredoka', sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(isBoosted ? "🧲 MAGNET!" : "BAKUL", 0, 4);
+
+            ctx.restore();
+        }
+
+        function gameLoop(timestamp) {
+            updateGame(timestamp);
+            drawScene();
+            requestAnimationFrame(gameLoop);
+        }
+
+        /**
+         * ============================================================================
+         * KAWALAN ALIRAN PERMAINAN (MULA, PEMASA 60 SAAT, TAMAT & GLOSARI)
+         * ============================================================================
+         */
+        let timerInterval = null;
+
+        async function startGame() {
+            await sound.init();
+            sound.startMusic();
+
+            // Tetapkan semula keadaan permainan
+            gameState.isPlaying = true;
+            gameState.score = 0;
+            gameState.combo = 0;
+            gameState.maxCombo = 0;
+            gameState.correctCount = 0;
+            gameState.timeLeft = 60;
+            gameState.fruits = [];
+            gameState.particles = [];
+            gameState.floatingTexts = [];
+            gameState.usedQuestions = [];
+            gameState.lastSpawnTime = performance.now();
+            gameState.spawnInterval = 1550;
+
+            basket.x = canvas.width / 2;
+
+            // Kemas kini paparan skrin
+            document.getElementById("start-screen").classList.add("hidden");
+            document.getElementById("end-screen").classList.add("hidden");
+            document.getElementById("game-hud").classList.remove("hidden");
+            document.getElementById("fallback-controls").classList.remove("hidden");
+            document.getElementById("bg-overlay").classList.replace("bg-slate-900/35", "bg-slate-900/20");
+
+            updateScoreHUD();
+            document.getElementById("timer-display").textContent = "60s";
+            document.getElementById("timer-box").classList.remove("border-rose-500", "animate-pulse");
+
+            pickNextQuestion();
+
+            // Mulakan pemasa undur 60 saat
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (!gameState.isPlaying) return;
+                gameState.timeLeft -= 1;
+                const timerEl = document.getElementById("timer-display");
+                const timerBox = document.getElementById("timer-box");
+                timerEl.textContent = `${gameState.timeLeft}s`;
+
+                if (gameState.timeLeft <= 10) {
+                    timerEl.classList.add("text-rose-400");
+                    timerBox.classList.add("border-rose-500", "animate-pulse");
+                } else {
+                    timerEl.classList.remove("text-rose-400");
+                }
+
+                if (gameState.timeLeft <= 0) {
+                    endGame();
+                }
+            }, 1000);
+        }
+
+        function endGame() {
+            gameState.isPlaying = false;
+            clearInterval(timerInterval);
+            sound.stopMusic();
+            sound.playGameOver();
+
+            document.getElementById("game-hud").classList.add("hidden");
+            document.getElementById("fallback-controls").classList.add("hidden");
+            document.getElementById("bg-overlay").classList.replace("bg-slate-900/20", "bg-slate-900/55");
+
+            // Papar statistik akhir
+            document.getElementById("final-score").textContent = gameState.score;
+            document.getElementById("final-correct").textContent = gameState.correctCount;
+            document.getElementById("final-max-combo").textContent = `${gameState.maxCombo}x`;
+
+            // Pangkat pencapaian
+            const rankEl = document.getElementById("end-rank-title");
+            if (gameState.score >= 150) rankEl.textContent = "🌟 Pendeta Bahasa Cemerlang! (Luar Biasa!)";
+            else if (gameState.score >= 80) rankEl.textContent = "🏅 Jaguh Kosa Kata Tahun 5! (Hebat!)";
+            else rankEl.textContent = "🌱 Pelajar Gigih Bahasa Melayu! (Teruskan Usaha!)";
+
+            // Jana Glosari Maksud Perkataan berdasarkan soalan yang muncul dalam sesi ini
+            const glossaryContainer = document.getElementById("glossary-list");
+            glossaryContainer.innerHTML = "";
+
+            const reviewedWords = gameState.usedQuestions.length > 0
+                ? VOCABULARY_BANK.filter(v => gameState.usedQuestions.includes(v.word))
+                : VOCABULARY_BANK.slice(0, 5);
+
+            reviewedWords.forEach(item => {
+                const card = document.createElement("div");
+                card.className = "bg-slate-900/90 border border-slate-700/80 rounded-xl p-3";
+                card.innerHTML = `
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                        <span class="font-game font-bold text-amber-300 text-base">${item.word}</span>
+                        <div class="flex flex-wrap gap-1.5 text-[11px]">
+                            <span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                                <strong>Sinonim:</strong> ${item.synonyms.join(", ")}
+                            </span>
+                            <span class="bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-md">
+                                <strong>Antonim:</strong> ${item.antonyms.join(", ")}
+                            </span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed"><strong>Maksud:</strong> ${item.meaning}</p>
+                `;
+                glossaryContainer.appendChild(card);
+            });
+
+            document.getElementById("end-screen").classList.remove("hidden");
+        }
+
+        /**
+         * ============================================================================
+         * PENDENGAR ACARA (BUTANG, PAPAN KEKUNCI & SENTUHAN)
+         * ============================================================================
+         */
+        document.getElementById("btn-start-game").addEventListener("click", startGame);
+        document.getElementById("btn-restart-game").addEventListener("click", startGame);
+
+        document.getElementById("btn-skip-q").addEventListener("click", () => {
+            if (gameState.isPlaying) pickNextQuestion(true);
+        });
+
+        document.getElementById("btn-mute").addEventListener("click", (e) => {
+            const muted = sound.toggleMute();
+            e.target.textContent = muted ? "🔇" : "🔊";
+        });
+
+        // Kawalan Kekunci Anak Panah
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") keys.left = true;
+            if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") keys.right = true;
+            if (e.key === " " || e.key === "ArrowUp") keys.boost = true;
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") keys.left = false;
+            if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") keys.right = false;
+            if (e.key === " " || e.key === "ArrowUp") keys.boost = false;
+        });
+
+        // Kawalan Sentuhan Mudah Alih
+        const bindTouch = (id, keyProp) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener("touchstart", (e) => { e.preventDefault(); keys[keyProp] = true; });
+            el.addEventListener("touchend", (e) => { e.preventDefault(); keys[keyProp] = false; });
+            el.addEventListener("mousedown", () => { keys[keyProp] = true; });
+            el.addEventListener("mouseup", () => { keys[keyProp] = false; });
+        };
+        bindTouch("touch-left", "left");
+        bindTouch("touch-right", "right");
+        bindTouch("touch-boost", "boost");
+
+        // Mulakan aplikasi apabila halaman selesai dimuatkan
+        window.onload = function () {
+            initMediaPipe();
+            requestAnimationFrame(gameLoop);
+        };
+    </script>
+</body>
+</html>
